@@ -1,9 +1,12 @@
 # Repeated Measures for two measures
 library(shiny)
 library(colourpicker)
+library("rclipboard") # added for URL project 3/22/24
 
 # Define UI for application that draws a histogram
 shinyUI(fluidPage(
+  
+  rclipboardSetup(), # added for URL project 3/22/24
   
 # Application title
   titlePanel("Repeated measures: 2 measures"),
@@ -27,9 +30,10 @@ conditionalPanel(condition="input.dots_or_slopes=='slopes'",
                              choices=c("*** select ***" = "select",
                                        "Slope visibility" = "slopevisibility",
                                        "Transform data" = "perc_s",
-                                       "Axes & grids" = "axes_s",
+                                       "Axes" = "axes_s",
                                        "Stats" = "stats_s",
-                                       "Text & plot size" = "labels_s"),
+                                       "Text & plot size" = "labels_s",
+                                       "Data import" = "dataimport"),
                              selected = NULL)
                  ),
 ####### DOTS ######
@@ -39,9 +43,10 @@ conditionalPanel(condition="input.dots_or_slopes=='dots'",
                                        "Data point visibility" = "dotvisibility",
                                        "Transform data" = "perc",
                                        "Reference lines" = "fit",
-                                       "Axes & grids" = "axes",
+                                       "Axes" = "axes",
                                        "Stats" = "stats",
-                                       "Text & plot size" = "labels"),
+                                       "Text & plot size" = "labels",
+                                       "Data import" = "dataimport"),
                              selected = NULL)
                  ),
 
@@ -63,11 +68,24 @@ conditionalPanel(condition="input.options_s=='slopevisibility' & input.dots_or_s
                              min = 0,
                              max = 100,
                              value = 0),
-                 sliderInput(inputId = "dotopacity_s",
+                 sliderInput(inputId = "lineopacity",
                              label = "line opacity",
                              min = 0,
                              max = 100,
-                             value = 50)
+                             value = 50), 
+                 checkboxInput('adddots', 'add dots', FALSE),
+                 conditionalPanel(condition="input.adddots",
+                                  sliderInput(inputId = "s_dotsize",
+                                              label = "individual point size",
+                                              min = 1,
+                                              max = 100,
+                                              value = 50),
+                                  sliderInput(inputId = "s_dotopacity",
+                                              label = "point opacity",
+                                              min = 0,
+                                              max = 100,
+                                              value = 50)
+                    )
                  ),
 # DOTS -- Data point visibility
 conditionalPanel(condition="input.options=='dotvisibility' & input.dots_or_slopes=='dots'",
@@ -139,13 +157,19 @@ conditionalPanel(condition="input.options=='fit' & input.dots_or_slopes=='dots'"
 # SLOPES -- Axes & grids
 conditionalPanel(condition="input.options_s=='axes_s' & input.dots_or_slopes=='slopes'",
                  textInput("axisranges_s", label = "y axis range", value = "", width = "50%", placeholder = "min,max"),
-                 checkboxInput('addgrid_s', 'add grid lines', FALSE)
+                 checkboxInput('addgrid_s', 'add grid lines', FALSE),
+                 checkboxInput('specifyaxisnums_s', 'specify axis numbers', FALSE),
+                    conditionalPanel(condition="input.specifyaxisnums_s",
+                    textInput("axisnums_s", label = "numbers", value = "", width = "75%", placeholder = "number 1,number 2..."))
 ),
 
 # DOTS -- Axes & grids
 conditionalPanel(condition="input.options=='axes' & input.dots_or_slopes=='dots'",
                  textInput("axisranges", label = "axis ranges", value = "", width = "50%", placeholder = "min,max"),
                  checkboxInput('addgrid', 'add grid lines', FALSE),
+                 checkboxInput('specifyaxisnums', 'specify axis numbers', FALSE),
+                    conditionalPanel(condition="input.specifyaxisnums",
+                    textInput("axisnums", label = "numbers", value = "", width = "75%", placeholder = "number 1,number 2...")),
                  checkboxInput('rug', 'project data onto axes', FALSE)
 ),
 
@@ -232,29 +256,59 @@ conditionalPanel(condition="input.options=='stats' & input.dots_or_slopes=='dots
 # SLOPES -- Text & plot size
 conditionalPanel(condition="input.options_s=='labels_s' & input.dots_or_slopes=='slopes'",
                  #checkboxInput('showstats_s', 'show stats on plot', TRUE),
-                 textInput("graphtitle_s", label = "Title", width = "50%", placeholder = "[title]"), 
-                 textAreaInput("xvariablelabel_s", label = "x variable label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
-                 textAreaInput("yvariablelabel_s", label = "y variable label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
-                 textAreaInput("measurelabel_s", label = "measure label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
-                 sliderInput(inputId = "plotsize_s",
-                             label = "plot size",
+                 textAreaInput("graphtitle_s", label = "title", value = "", width = "100%", placeholder = "Use [return] to split title"),
+                 textAreaInput("xvariablelabel_s", label = "1st condition label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
+                 textAreaInput("yvariablelabel_s", label = "2nd condition label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
+                 textInput("measurelabel_s", label = "y-axis label", value = "", width = "100%", placeholder = "Enter text"),
+                 # sliderInput(inputId = "plotsize_s",
+                 #             label = "plot size",
+                 #             min = 0,
+                 #             max = 100,
+                 #             value = 75) 
+                 sliderInput(inputId = "plotheight_s",
+                             label = "plot height",
                              min = 0,
-                             max = 100,
-                             value = 75) 
+                             max = 200,
+                             value = 80),
+                 sliderInput(inputId = "plotwidth_s",
+                             label = "plot width",
+                             min = 0,
+                             max = 200,
+                             value = 80),
+                 sliderInput(inputId = "numbersize",
+                             label = "number size",
+                             min = 1,
+                             max = 200,
+                             value = 115),
+                 sliderInput(inputId = "labelsize",
+                             label = "label size",
+                             min = 1,
+                             max = 200,
+                             value = 125)
 ),
 
 # DOTS -- Text & plot size
 conditionalPanel(condition="input.options=='labels' & input.dots_or_slopes=='dots'",
                  #checkboxInput('showstats', 'show stats on plot', TRUE),
-                 textInput("graphtitle", label = "Title", width = "50%", placeholder = "[title]"), 
-                 textAreaInput("xvariablelabel", label = "x variable label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
-                 textAreaInput("yvariablelabel", label = "y variable label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
+                 textAreaInput("graphtitle", label = "title", value = "", width = "100%", placeholder = "Use [return] to split title"),
+                 textAreaInput("xvariablelabel", label = "1st condition label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
+                 textAreaInput("yvariablelabel", label = "2nd condition label", value = "", width = "100%", rows = "2", placeholder = "Use [return] to split label"),
                  sliderInput(inputId = "plotsize",
                              label = "plot size",
                              min = 0,
-                             max = 100,
-                             value = 75) 
+                             max = 200,
+                             value = 80)
+),
+
+# Data import
+conditionalPanel(condition="(input.options=='dataimport' & input.dots_or_slopes=='dots') | (input.options_s=='dataimport' & input.dots_or_slopes=='slopes')",
+                 textInput("datalink", 
+                           label = HTML("paste shared google sheets link<h6><strong style='font-weight:normal'>
+                                 Linked file must contain <i>only</i> the data you wish to plot, with a top row of column labels, two columns of numbers, and, optionally, a 3rd column containing datapoint labels. Column and datapoint labels must be text, not numbers.</strong></h6>"), 
+                           value = "", width = "85%", placeholder = "https://docs.google.com/spread...")
 )
+
+
 
 ),
 
@@ -264,10 +318,10 @@ mainPanel(
           uiOutput('ui_plot'),
       
           tags$h6(HTML(" ")),
-          
+
           conditionalPanel(condition="input.dots_or_slopes=='slopes'",
                            downloadButton(outputId = "down_s", label = "Download graph as..."),
-                           radioButtons("filetype_s", label = NULL, choices = list("pdf", "png")),
+                           radioButtons("filetype_s", label = NULL, choices = list("png", "pdf")),
                            hr(style = "margin: 20px 30px 20px 30px; border: .5px solid #a6a6a6"),
                            tags$h6(HTML(" ")),
                            tags$h4("Statistics"),
@@ -276,15 +330,15 @@ mainPanel(
                            htmlOutput("meandifftext_s"),
                            htmlOutput("cohensdtext_raw_s"),
                            htmlOutput("cohensdtext_unbiased_s"),
-                           htmlOutput("ntext_s"),
                            htmlOutput("corrtext_s"),
+                           htmlOutput("ttext_s"),
                            
                            #hr(style = "margin: 0px 30px 20px 30px; border: .5px solid #a6a6a6"),
                            tags$h6(HTML(" "))
           ),
           conditionalPanel(condition="input.dots_or_slopes=='dots'",
                            downloadButton(outputId = "down", label = "Download graph as..."),
-                           radioButtons("filetype", label = NULL, choices = list("pdf", "png")),
+                           radioButtons("filetype", label = NULL, choices = list("png", "pdf")),
                            hr(style = "margin: 20px 30px 20px 30px; border: .5px solid #a6a6a6"),
                            tags$h6(HTML(" ")),
                            tags$h4("Statistics"),
@@ -293,8 +347,8 @@ mainPanel(
                            htmlOutput("meandifftext"),
                            htmlOutput("cohensdtext_raw"),
                            htmlOutput("cohensdtext_unbiased"),
-                           htmlOutput("ntext"),
                            htmlOutput("corrtext"),
+                           htmlOutput("ttext"),
                            
                            hr(style = "margin: 0px 30px 20px 30px; border: .5px solid #a6a6a6"),
                            tags$h6(HTML(" ")),
@@ -302,6 +356,10 @@ mainPanel(
                            checkboxInput("showdifferences", HTML("<span style='font-weight:normal;'>Show y-x differences</span>"), FALSE),
           ),
 
+          # added for URL project 3/22/24
+          uiOutput("clip"), 
+          tags$h6(HTML(" ")),
+          
           hr(style = "margin: 0px 30px 20px 30px; border: .5px solid #a6a6a6"),
           tags$h6(HTML(" ")),
       

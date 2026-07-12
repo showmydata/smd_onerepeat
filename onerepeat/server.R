@@ -1,46 +1,70 @@
 # Repeated Measures for two measures
+# Git info: https://carpentries.github.io/sandpaper-docs/github-pat.html
+
 library(shiny)
 library(stringr)
-library(psychometric)
 library(tidyr)
+library(readr)
+library("gsheet")
+library(mvtnorm) # for rmvnorm in generating a random sample
+library(psych) # for geometric.mean
+library(sadists) # for qlambdap the lambda-prime distribution
+source("functions/d_and_cis.R") 
+# My scripts
+source("functions/make_url.R") 
+source("functions/parse_url.R") 
+source("functions/add_data_link_to_url.R")
+source("functions/get_data_from_url.R")
+source("functions/ci_functions.R")
 source("functions/equate_zscored_axis_ranges.R") 
 source("functions/perc_rank_rm.R") 
 source("functions/jitter_by_percent_min_wn2.R") 
 source("functions/process_label.R")
-# For d and CIs
-library(mvtnorm) # for rmvnorm in generating a random sample
-#library(MBESS) # for conf.limits.nct
-library(psych) # for geometric.mean
-library(sadists) # for qlambdap the lambda-prime distribution
-source("functions/d_and_cis.R") 
 
-#take out other options and add label boxes 
-shinyServer( # Function title (don't think this is necessary)
-  function(input, output) { # Create the function
-    # Grabs user-specified height and width
-    
+shinyServer(  # Initiate the shiny server
+  function(input, output, session) { # Create the function -- added 'session' for URL project 3/22/24
+
     output$ui_plot <- renderUI({
-      if (input$dots_or_slopes=='slopes') plotsize=input$plotsize_s 
-      else if (input$dots_or_slopes=='dots') plotsize=input$plotsize
-      plotOutput("contents", width = plotsize*8, height = plotsize*8)
+      if (input$dots_or_slopes=='slopes') {plotheight=input$plotheight_s; plotwidth=input$plotwidth_s} 
+      else if (input$dots_or_slopes=='dots') {plotheight=input$plotsize; plotwidth=input$plotsize} 
+      plotOutput("contents", width = plotwidth*8, height = plotheight*8)
       })
     output$contents <- renderPlot( { # Call Shiny function that makes the plot
       
       ### DATA INPUT ###
       if(input$myData>"") {
-        d <- read.table(text = input$myData, sep = '\t', header = FALSE)
-        d2 <- read.table(text = input$myData, sep = '\t', header = TRUE); 
-        v=as.character(colnames(d2))
-        v=gsub("\\.", " ", v)
+        # Next 3 lines added 8/15/23
+        v=unlist(strsplit(input$myData,"\n")); v=unlist(strsplit(v[1],"\t")); # Read 'header' exactly, regardless of characters
+        if(!all(is.na(as.numeric(v)))) for (i in 1:length(v)) v[i]=paste("column ",i); # If 'header' has any numbers (is not all words), replace with "column i"
+        d0=gsub(",","",input$myData); d0=gsub("'","",d0); d0=gsub("‘","",d0); d0=gsub("’","",d0); d0=gsub('"',"",d0); d0=gsub("“","",d0); d0=gsub("”","",d0) # Replace various characters that produce errors
+        for (i in 1:length(v)) { vv=v[i]; # For each variable label
+        if (nchar(vv)>20) { # If the variable label is >20 length, add a carriage return at the last space before the 20th character
+          b=unlist(gregexpr(' ', vv)); c=max(b[b<20]); vv=paste(substr(vv,1,c-1), "\n", substr(vv,c+1,nchar(vv)), sep=""); v[i]=vv
+        }}
+        
+        d <- read.table(text = d0, sep = '\t', header = FALSE)
+        d2 <- read.table(text = d0, sep = '\t', header = TRUE); 
+        # v=as.character(colnames(d2)); v=gsub("\\.", " ", v) # Formerly got column names produced by read.table, now replaced by new lines above
         v=strtrim(v, 45)
       } else {
-        d=attitude[,c(3,2)]; v=c("Knowledge\ntime 1","Knowledge\ntime 2"); 
+        d=attitude[,c(3,2)]; v=c("Knowledge\ntime 1","Knowledge\ntime 2"); colnames(d) <- v
+        d=as.data.frame(get_data_from_url(d,session,input$datalink)); v=colnames(d)
       }
+      d=as.data.frame(d);
+      # 3/27/24 -- copy-pasted from TMB version of app -- hoping it will deal with periods and other characters in google sheet
+      v=gsub(".", " ", v, fixed=TRUE); v=gsub(",","",v); v=gsub("'","",v); v=gsub("‘","",v); v=gsub("’","",v); v=gsub('"',"",v); v=gsub("“","",v); v=gsub("”","",v) # Replace various characters that produce errors
+      for (i in 1:length(v)) { vv=v[i]; # For each variable label
+      if (nchar(vv)>20) { # If the variable label is >20 length, add a carriage return at the last space before the 20th character
+        b=unlist(gregexpr(' ', vv)); c=max(b[b<20]); vv=paste(substr(vv,1,c-1), "\n", substr(vv,c+1,nchar(vv)), sep=""); v[i]=vv
+      }}
+      
+      
       ## DEAL WITH >2 COLUMNS OF DATA ##
+      d=d[rowSums(d=="") != ncol(d), ] # Exclude completely blank rows from data set
       isdata=FALSE;
         dkeep=d;          # keep this copy of d for its labels
-      for (i in 1:length(d)) { # for each column, set to numeric then see if it is at least half numbers
-        d[,i]=as.numeric(d[,i]); isdata[i]=FALSE; if(sum(!is.na(d[,i]))/length(d[,i])>.5) {isdata[i]=TRUE}
+      for (i in 1:length(d)) { # for each column, set to numeric then see if it is at least 20% of numbers
+        d[,i]=as.numeric(d[,i]); isdata[i]=FALSE; if(sum(!is.na(d[,i]))/length(d[,i])>.2) {isdata[i]=TRUE}
       }
       dolabels=FALSE      # set default to no labels
       if (length(d)>2) {  # if more than two columns
@@ -55,9 +79,9 @@ shinyServer( # Function title (don't think this is necessary)
         dd=d[,1:2]; # if column number wasn't greater than 2, just graph the two columns
       }
       cc=complete.cases(dd); # find the complete cases (excludes NAs in first row left by labels)
-      d=dd[cc,];             # 
+      if (length(d)>2) thelabels=thelabels[cc] # If there are labels, exclude incomplete rows
+      d=dd[cc,];             # Exclude incomplete rows in data
       d=as.data.frame(d);
-
       
       ### DATA PROCESSING -- SLOPES ###
       if (input$dots_or_slopes=='slopes') {
@@ -89,6 +113,8 @@ shinyServer( # Function title (don't think this is necessary)
       standardized_mean_difference_s=round(dp(cbind(x_s,y_s)),dig_s)
       standardized_ci2_s=round(adjustedlambdaprime(standardized_mean_difference_s,cbind(x_s,y_s)),dig_s)
       if (standardized_mean_difference_s<0) {standardized_mean_difference_s=-standardized_mean_difference_s; standardized_ci2_s=c(-standardized_ci2_s[2],-standardized_ci2_s[1])}
+      # T-test
+      tt_s=t.test(x_s, y_s, paired=TRUE)
       # Find good axis ranges
       xmin_s=min(x_s); xmax_s=max(x_s); ymin_s=min(y_s); ymax_s=max(y_s); # Finds min and max values
       min_s=min(c(xmin_s,ymin_s)); if ((ymean_s-moe_s)<min_s) min_s=ymean_s-moe_s
@@ -96,22 +122,28 @@ shinyServer( # Function title (don't think this is necessary)
       xlim_s=c(min_s, max_s)
       ylim_s=c(min_s, max_s)
       # Take specified range
-      if(input$axisranges_s=="") stuff=1 else {rng_s=input$axisranges_s; rng_s=unlist(strsplit(rng_s,",")); rng_s=as.numeric(rng_s); ylim_s[1:length(rng_s)]=rng_s}
+      if(input$axisranges_s=="") stuff=1 else {rng_s=input$axisranges_s; rng_s=unlist(strsplit(rng_s,",")); 
+                            rng_s=as.numeric(rng_s); ylim_s[1:length(rng_s)]=rng_s; if (length(ylim_s)>2) ylim_s=ylim_s[1:2]}
       # Get variable labels and measure label
-      measurelabel=input$measurelabel_s
+      # measurelabel=input$measurelabel_s
       v1_s=process_label(input$xvariablelabel_s,v[1]); xlabel_s=v1_s; 
       v2_s=process_label(input$yvariablelabel_s,v[2]); ylabel_s=v2_s;
-      if (nchar(xlabel_s)>17) xlabel_s=gsub(" ", "\n", xlabel_s)  
-      if (nchar(ylabel_s)>17) ylabel_s=gsub(" ", "\n", ylabel_s)
-      extra_margin_s=max(str_count(xlabel_s,"\n"),str_count(ylabel_s,"\n"),str_count(input$measurelabel_s,"\n")) # max carriage returns in a label (to adjust plot margins)
+#      if (input$xvariablelabel_s=="") {
+#        if (nchar(xlabel_s)>17) xlabel_s=gsub(" ", "\n", xlabel_s)
+#        }
+#      if (input$yvariablelabel_s=="") {
+#        if (nchar(ylabel_s)>17) ylabel_s=gsub(" ", "\n", ylabel_s)
+#        }
+      extra_margin_s=max(str_count(xlabel_s,"\n"),str_count(ylabel_s,"\n"),str_count(input$measurelabel_s,"\n")+1) # max carriage returns in a label (to adjust plot margins)
+      title_extra_s=str_count(input$graphtitle_s,"\n") # carriage returns in the title
       # Compute statistics
-      if (input$addmean_s) output$meantext_s = renderText(paste("Means (x = ",round(xmean_s,dig_s),", y = ",round(ymean_s,dig_s),")","<br>",sep=""))
+      if (input$addmean_s) output$meantext_s = renderText(paste("Means (x = ",round(xmean_s,dig_s),", y = ",round(ymean_s,dig_s),")", ", n = " , n_s, "<br>",sep=""))
       if (input$addmedian_s) output$mediantext_s = renderText(paste("Medians (x = ",round(xmedian_s,dig_s),", y = ",round(ymedian_s,dig_s),")","<br>",sep=""))
-      output$meandifftext_s = renderText(paste("Mean difference = ",mean_difference_s,", 95% CI [",round(ci2_s[1],dig_s),", ",round(ci2_s[2],dig_s),"]<br>",sep=""))
-      output$cohensdtext_raw_s = renderText(paste("Raw mean difference in SD units (Cohen's d raw) = ",standardized_mean_difference_raw_s,", 95% CI [",standardized_ci2_raw_s[1],", ",standardized_ci2_raw_s[2],"]<br>",sep=""))
-      output$cohensdtext_unbiased_s = renderText(paste("Unbiased mean difference in SD units (Cohen's d unbiased) = ",standardized_mean_difference_s,", 95% CI [",standardized_ci2_s[1],", ",standardized_ci2_s[2],"]<br>",sep=""))
-      output$ntext_s = renderText(paste("n = ",n_s," (",n_s-1," degrees of freedom)","<br>",sep=""))
-      output$corrtext_s = renderText(paste("r = ",round(r_s,dig_s),", 95% CI [",ci_r_s[1],", ",ci_r_s[2],"]<br><br>",sep=""))
+      output$meandifftext_s = renderText(paste("Mean difference in original units = ",mean_difference_s,", 95% CI [",round(ci2_s[1],dig_s),", ",round(ci2_s[2],dig_s),"]<br>",sep=""))
+      output$cohensdtext_raw_s = renderText(paste("Mean difference in SD units (Cohen's d) = ",standardized_mean_difference_raw_s,", 95% CI [",standardized_ci2_raw_s[1],", ",standardized_ci2_raw_s[2],"]<br>",sep=""))
+      output$cohensdtext_unbiased_s = renderText(paste("Bias-corrected mean difference in SD units (Cohen's d unbiased) = ",standardized_mean_difference_s,", 95% CI [",standardized_ci2_s[1],", ",standardized_ci2_s[2],"]<br>",sep=""))
+      output$corrtext_s = renderText(paste("r = ",round(r_s,dig_s),", 95% CI [",ci_r_s[1],", ",ci_r_s[2],"]<br>",sep=""))
+      output$ttext_s = renderText(paste("t(", n_s-1, ") = ", signif(-tt_s$statistic,dig_s), ", ", "p = ", signif(tt_s$p.value,dig_s), "<br><br>",sep=""))
       } ### END DATA PROCESSING -- SLOPES ###
       
       
@@ -145,6 +177,8 @@ shinyServer( # Function title (don't think this is necessary)
       standardized_mean_difference=round(dp(cbind(x,y)),dig)
       standardized_ci2=round(adjustedlambdaprime(standardized_mean_difference,cbind(x,y)),dig)
       if (standardized_mean_difference<0) {standardized_mean_difference=-standardized_mean_difference; standardized_ci2=c(-standardized_ci2[2],-standardized_ci2[1])}
+      # T-test
+      tt=t.test(x, y, paired=TRUE)
       # Find good axis ranges
       xmin=min(x); xmax=max(x); ymin=min(y); ymax=max(y); # Finds min and max values
       min=min(c(xmin,ymin)); if ((ymean-moe)<min) min=ymean-moe
@@ -157,30 +191,56 @@ shinyServer( # Function title (don't think this is necessary)
       v1=process_label(input$xvariablelabel,v[1]); xlabel=v1; 
       v2=process_label(input$yvariablelabel,v[2]); ylabel=v2;
       extra_margin=max(str_count(v1,"\n"),str_count(v2,"\n")) # max carriage returns in a label (to adjust plot margins)
+      title_extra=str_count(input$graphtitle,"\n") # carriage returns in the title
       # Compute statistics
-      if (input$addmean) output$meantext = renderText(paste("Means (x = ",round(xmean,dig),", y = ",round(ymean,dig),")","<br>",sep=""))
+      if (input$addmean) output$meantext = renderText(paste("Means (x = ",round(xmean,dig),", y = ",round(ymean,dig),")", ", n = ", n, "<br>",sep=""))
       if (input$addmedian) output$mediantext = renderText(paste("Medians (x = ",round(xmedian,dig),", y = ",round(ymedian,dig),")","<br>",sep=""))
       output$meandifftext = renderText(paste("Mean difference = ",mean_difference,", 95% CI [",round(ci2[1],dig),", ",round(ci2[2],dig),"]<br>",sep=""))
       output$cohensdtext_raw = renderText(paste("Raw mean difference in SD units (Cohen's d raw) = ",standardized_mean_difference_raw,", 95% CI [",standardized_ci2_raw[1],", ",standardized_ci2_raw[2],"]<br>",sep=""))
       output$cohensdtext_unbiased = renderText(paste("Unbiased mean difference in SD units (Cohen's d unbiased) = ",standardized_mean_difference,", 95% CI [",standardized_ci2[1],", ",standardized_ci2[2],"]<br>",sep=""))
-      output$ntext = renderText(paste("n = ",n," (",n-1," degrees of freedom)","<br>",sep=""))
-      output$corrtext = renderText(paste("r = ",round(r,dig),", 95% CI [",ci_r[1],", ",ci_r[2],"]<br><br>",sep=""))
+      output$corrtext = renderText(paste("r = ",round(r,dig),", 95% CI [",ci_r[1],", ",ci_r[2],"]<br>",sep=""))
+      output$ttext = renderText(paste("t(", n-1, ") = ", signif(tt$statistic,dig), ", ", "p = ", signif(tt$p.value,dig),"<br><br>",sep=""))
       } ### END DATA PROCESSING -- DOTS ###
       
+      # # If axis numbers are specified and the user specified an axis range, then get those axis numbers and add them to the plot, expanding the range. 
+      # if (input$axisnums_s!="" & userspecifiedaxisrange) {axisnums_s=as.numeric(unlist(strsplit(input$axisnums_s,","))); 
+      #   pl = pl + scale_y_continuous(expand = c(0, 0), labels=function(n){format(n, big.mark = ",", scientific = FALSE)}, breaks=axisnums_s)}
+      # # Else if axis numbers are specified (and the user did not specify an axis range), then get those axis numbers and add them. 
+      # else if (input$axisnums_s!="") {axisnums_s=as.numeric(unlist(strsplit(input$axisnums_s,","))); 
+      #   pl = pl + scale_y_continuous(breaks=axisnums_s) }
+      # # Else if just the range is specified, then just expand the range. 
+      # else if (userspecifiedaxisrange) 
+      #   pl <- pl + scale_y_continuous(expand = c(0, 0), labels=function(n){format(n, big.mark = ",", scientific = FALSE)})
+      
+      yaxt_flag <- if (input$axisnums_s!="") "n" else "s"
       
       ### DRAW SLOPE PLOT IN WINDOW ###
       if (input$dots_or_slopes=='slopes') {
       c_s=col2rgb(input$color_dot_s)/255
       makemyplot_s <- function() {
-        par(pty="s") # Forces the scatterplot to be square
-        par(mar = c(4+extra_margin_s*2,3+extra_margin_s*2,4,2) + 0.1) # adjust default axis margin for multiline labels: par(mar = c(lower,left,top,right)) as par(mar = c(5,4,4,2) + 0.1)
-        plot(0, 0, col = "white", xlab = "", ylab = input$measurelabel_s, xlim=c(0,3), ylim=ylim_s, cex.main=3, 
-               cex.axis=1.5, cex.lab=2, xaxt="n", frame=FALSE, main=input$graphtitle_s)
-          axis(1, at = c(.5, 2.5), labels = c(xlabel_s, ylabel_s), cex.axis=2, mgp=c(3,2+extra_margin_s*2,0))
-          if (input$addgrid_s) grid(lty=1, nx=NA, ny=NULL, lwd = 1)
+        #par(pty="s") # Forces the scatterplot to be square
+        par(mar = c(5 + extra_margin_s*2, 4 + extra_margin_s*2, 4 + title_extra_s*3, 2) + 0.1) # adjust default axis margin for multiline labels: par(mar = c(lower,left,top,right)) as par(mar = c(5,4,4,2) + 0.1)
+        #par(mar = c(4+extra_margin_s*2,6+extra_margin_s*2,4,2) + 0.1) # adjust default axis margin for multiline labels: par(mar = c(lower,left,top,right)) as par(mar = c(5,4,4,2) + 0.1)
+        plot(0, 0, col = "white", xlab = "", ylab = input$measurelabel_s, xlim=c(0,3), ylim=ylim_s, cex.main=3, las = 1,
+               cex.axis=input$numbersize/50, cex.lab=input$labelsize/40, xaxt="n", yaxt=yaxt_flag, frame=FALSE, main=input$graphtitle_s, mgp=c(4,1,0))
+          axis(1, at = c(.5, 2.5), labels = c(xlabel_s, ylabel_s), cex.axis=input$labelsize/50, mgp=c(3,2.5+extra_margin_s*2,0))
+          axis(side = 2, at = ylim_s, labels = FALSE)
+          if (input$axisnums_s!="") {axisnums_s=as.numeric(unlist(strsplit(input$axisnums_s,","))); 
+            axis(side = 2, at = c(axisnums_s), labels = c(axisnums_s), cex.axis = input$numbersize/50, las=1)}
+          if (input$addgrid_s & input$axisnums_s=="") grid(lty=1, nx=NA, ny=NULL, lwd = 1, col = "lightgray")
+          else if (input$addgrid_s) abline(h = c(axisnums_s), lty = 1, lwd = 1, col = "lightgray")
           segments(x0=numeric(length(x1_s))+.5, y0=x1_s, x1=numeric(length(y1_s))+2.5, y1=y1_s, 
                    lwd=input$ind_linewidths/10,  # line width
-                   col=rgb(red=c_s[1], green=c_s[2], blue=c_s[3], alpha=input$dotopacity_s/100))      # dot color
+                   col=rgb(red=c_s[1], green=c_s[2], blue=c_s[3], alpha=input$lineopacity/100))      # dot color
+          if (input$adddots) {
+            points(numeric(length(x1_s))+.5, x1_s,
+                   pch=19, cex=input$s_dotsize/20,
+                   col=rgb(red=c_s[1], green=c_s[2], blue=c_s[3], alpha=input$s_dotopacity/100))
+            points(numeric(length(y1_s))+2.5, y1_s,
+                   pch=19, cex=input$s_dotsize/20,
+                   col=rgb(red=c_s[1], green=c_s[2], blue=c_s[3], alpha=input$s_dotopacity/100))
+          }
+
         #mtext(v1_s, side = 1, line = str_count(v1_s,"\n")*2+3, cex=2)
         # Add mean, median, 95% CI
         if (input$addmedian_s==TRUE) {
@@ -207,13 +267,13 @@ shinyServer( # Function title (don't think this is necessary)
       }
       makemyplot_s()
       }
-      
+            
       ### DRAW DOTS PLOT IN WINDOW ###
       if (input$dots_or_slopes=='dots') {
       c=col2rgb(input$color_dot)/255
       makemyplot <- function() {
         par(pty="s") # Forces the scatterplot to be square
-        par(mar = c(5+extra_margin*2,4+extra_margin*2,4,2) + 0.1) # adjust default axis margin for multiline labels: par(mar = c(lower,left,top,right)) as par(mar = c(5,4,4,2) + 0.1)
+        par(mar = c(5 + extra_margin*2, 4 + extra_margin*2, 4 + title_extra*3, 2) + 0.1) # adjust default axis margin for multiline labels: par(mar = c(lower,left,top,right)) as par(mar = c(5,4,4,2) + 0.1)
         plot(0,0,col="white",
              main=input$graphtitle, xlab="", ylab=ylabel, cex.main=3, cex.axis=1.5,       # title & axis labels & font sizes
              xlim=xlim, ylim=ylim, frame=FALSE, cex.lab=2)                              # axis ranges & no frame
@@ -243,7 +303,14 @@ shinyServer( # Function title (don't think this is necessary)
       }
       makemyplot()
       }
-      
+        settings=reactiveValuesToList(input);
+        theurl=make_url(settings, get_all=FALSE, 
+                        datalink=input$datalink, 
+                        appurl="https://showmydata.shinyapps.io/onerepeat"); 
+        theurl=gsub("\\n","\n",theurl,fixed=TRUE); theurl=gsub("\n","newline",theurl,fixed=TRUE); #NEW
+        output$clip <- renderUI({ rclipButton(inputId = "clipbtn", icon = icon("clipboard"), 
+                                              label = "Copy link with current settings", 
+                                              clipText = theurl)}) 
 
       ### WRITE SLOPE PLOT TO DEVICE OR TO DOWNLOAD ###
       if (input$dots_or_slopes=='slopes') {
@@ -255,13 +322,14 @@ shinyServer( # Function title (don't think this is necessary)
         # content is a function with argument file. content writes the plot to the device
         content = function(file) {
           if(input$filetype_s == "png")
-            png(file, units="in", width=input$plotsize_s/9, height=input$plotsize_s/9, res=500) # make png file
+            png(file, units="in", width=input$plotwidth_s/9, height=input$plotheight_s/9, res=500) # make png file
           else if(input$filetype_s == "pdf")
-            pdf(file, width=input$plotsize_s/9, height=input$plotsize_s/9) # open the pdf device
+            pdf(file, width=input$plotwidth_s/9, height=input$plotheight_s/9) # open the pdf device
           makemyplot_s()
           dev.off()  # turn the device off
         })
       }
+      
             
       ### WRITE DOT PLOT TO DEVICE OR TO DOWNLOAD ###
       if (input$dots_or_slopes=='dots') {
@@ -282,4 +350,8 @@ shinyServer( # Function title (don't think this is necessary)
       }
       
     })
+    
+    # Get link, Make link, Add URL
+    observe({ urlstring=session$clientData$url_search; if (urlstring!="") session <- parse_url(urlstring, session) }) # updates session
+    
   })
