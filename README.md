@@ -1,5 +1,3 @@
----
-
 # ShowMyData: Repeated Measures – 2 Measures
 
 ![ShowMyData Repeated Measures – 2 Measures](images/view.png)
