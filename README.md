@@ -21,9 +21,15 @@ This application creates publication-quality graphs for paired or repeated-measu
 ```r
 install.packages(c(
   "shiny",
-  "tidyverse",
-  "ggridges",
-  "ggthemes"
+  "stringr",
+  "tidyr",
+  "readr",
+  "gsheet",
+  "mvtnorm",
+  "psych",
+  "sadists",
+  "colourpicker",
+  "rclipboard"
 ))
 ```
 
